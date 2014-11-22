@@ -1,7 +1,17 @@
 module OptimalInterpolation
 import Distances
 
-function distance_matrix(x1, x2)
+# Statistical functions to directly compute autocovariance and autocorrelation
+demean(A::AbstractArray) = A - mean(A)
+autocov{T}(X::Vector{T}) = T[mean(X[1:end-j].*X[j+1:end]) for j=0:length(X)-1]
+autocorr(X::Vector) = autocov(X) / var(X)
+
+# Some convenience functions
+var_from_struct(s, Z::Vector) = var(Z) - 0.5*s
+ones_like{T}(Z::AbstractArray{T}) = ones(T, size(Z))
+
+# Compute the pairwise euclidean distances between every element in two vectors
+function distance_matrix(x1::AbstractArray, x2::AbstractArray)
     D = Array(Float64, (size(x1)[2], size(x2)[2]))
     for i = 1:size(D)[1]
         for j = 1:size(D)[2]
@@ -10,44 +20,48 @@ function distance_matrix(x1, x2)
     end
     return D
 end
+distance_matrix(x1::AbstractVector, x2::AbstractVector) = distance_matrix(x1', x2')
 
-# Statistical functions to directly compute autocovariance and autocorrelation
-demean(A::AbstractArray) = A - mean(A)
-autocov{T}(X::Vector{T}) = T[mean(X[1:end-j].*X[j+1:end]) for j=0:length(X)-1]
-autocorr(X::Vector) = autocov(X) / var(X)
-
-# *model* is a fuction that reproduces the structure function at a lag *r*
-function errorvariance(model::Function, C::AbstractArray, Ai::AbstractArray, Z::AbstractArray)
-    ϵ = (var(Z) - 0.5*model(0)) * ones(length(Z))
-    for i=1:length(ϵ)
-        ϵ[i] -= sum(C[:,i] .* C[:,i]' .* Ai)
-    end
-    return ϵ
-end
-
-function oainterp(model::Function, Xi, X, Y; ϵ=1e-1)
+# Make an objective analysis (OA) estimate of the field known from observations
+# at *X*, *Y* at the positions *Xi*. The field structure function is given by
+# *model*, and the variance intrinsic to the observation is given by *ϵ0*
+function oainterp(model::Function, Xi, X, Y; ϵ0=1e-1)
     Yd = demean(Y)
-    A = var(Yd) - 0.5*model(distance_matrix(X, X)) + diagm(ϵ*ones(length(X)))
-    C = var(Yd) - 0.5*model(distance_matrix(X, Xi))
+    A = var_from_struct(model(distance_matrix(X, X)), Yd) + diagm(ϵ0*ones_like(Y))
+    C = var_from_struct(model(distance_matrix(X, Xi)), Yd)
 
     Ainv = inv(A)
     α = Ainv*C
     Yi = α'*Yd + mean(Y)
-    errv = errorvariance(model, C, Ainv, Yi)
-    return Yi, errv
+    ϵi = errorvariance(model, C, Ainv, Yi)
+    return Yi, ϵi
 end
 
-# Model estimation
-function covariance_matrix(z1, z2)
-    V = Array(Float64, (length(z1), length(z2)))
-    for i = 1:size(V)[1]
-        for j = 1:size(V)[2]
-            V[i,j] = (z1[i] - z2[j])^2
-        end
+# Compute the error variance from an OA estimate, given the modelled structure
+# function *model*, prediction covariance matrix *C*, the inverted observation
+# covariance matrix *Ainv*, and the observation data, *Z*.
+#
+# If the returned error variance is negative, I believe that is an indication
+# that the model underestimates the local variance (where lag=0).
+function errorvariance(model::Function, C::AbstractArray, Ainv::AbstractArray,
+                       Z::AbstractArray)
+    ϵ = var_from_struct(model(0), Z) * ones_like(Z)
+    for i=1:length(ϵ)
+        ϵ[i] -= sum(C[:,i] .* C[:,i]' .* Ainv)
     end
-    return V
+    return ϵ
 end
 
+
+#### Model estimation #####
+# The following functions may be useful for estimating the structure function
+
+# Compute the covariance matrix
+function covariance_matrix(z1, z2)
+    return demean(z1[:]) * demean(z2[:])'
+end
+
+# Band average *y* over *nbands* intervals in *x*
 function band_average(x::AbstractArray, y::AbstractArray, nbands::Int64)
     Ymean = Float64[]
     bands = linspace(minimum(x), maximum(x), nbands+1)
@@ -66,7 +80,7 @@ function band_average(x::AbstractArray, y::AbstractArray, nbands::Int64)
             push!(Ymean, NaN)
         end
     end
-    return (Ymean, 0.5*[bands[1:end-1]+bands[2:end]])
+    return (0.5*[bands[1:end-1]+bands[2:end]], Ymean)
 end
 
 # Computes a structure function *s*, defined is terms of correlation *r* as:
