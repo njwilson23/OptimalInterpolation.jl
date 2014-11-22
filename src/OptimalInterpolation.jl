@@ -30,10 +30,10 @@ function oainterp(model::Function, Xi, X, Y; ϵ=1e-1)
     A = var(Yd) - 0.5*model(distance_matrix(X, X)) + diagm(ϵ*ones(length(X)))
     C = var(Yd) - 0.5*model(distance_matrix(X, Xi))
 
-    Ai = inv(A)
-    α = inv(A)*C
+    Ainv = inv(A)
+    α = Ainv*C
     Yi = α'*Yd + mean(Y)
-    errv = errorvariance(model, C, Ai, Yi)
+    errv = errorvariance(model, C, Ainv, Yi)
     return Yi, errv
 end
 
