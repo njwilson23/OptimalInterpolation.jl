@@ -9,13 +9,20 @@ autocorr(X::Vector) = autocov(X) / var(X)
 # Some convenience functions
 var_from_struct(s, Z::Vector) = var(Z) - 0.5*s
 ones_like{T}(Z::AbstractArray{T}) = ones(T, size(Z))
+function detrend(x, y)
+    b = (x' * x) \ (x' * y)
+    return b[1]*x
+end
 
 # Compute the pairwise euclidean distances between every element in two vectors
 function distance_matrix(x1::AbstractArray, x2::AbstractArray)
     D = Array(Float64, (size(x1)[2], size(x2)[2]))
     for i = 1:size(D)[1]
-        for j = 1:size(D)[2]
+        for j = i:size(D)[2]
             D[i,j] = Distances.euclidean(x1[:,i], x2[:,j])
+            if i!=j
+                D[j,i] = D[i,j]
+            end
         end
     end
     return D
@@ -23,35 +30,31 @@ end
 distance_matrix(x1::AbstractVector, x2::AbstractVector) = distance_matrix(x1', x2')
 
 # Make an objective analysis (OA) estimate of the field known from observations
-# at *X*, *Y* at the positions *Xi*. The field structure function is given by
+# at *X*, *Y* at the positions *Xi*. The field variance function is given by
 # *model*, and the variance intrinsic to the observation is given by *ϵ0*
 function oainterp(model::Function, Xi, X, Y; ϵ0=1e-1)
     Yd = demean(Y)
-    A = var_from_struct(model(distance_matrix(X, X)), Yd) + diagm(ϵ0*ones_like(Y))
-    C = var_from_struct(model(distance_matrix(X, Xi)), Yd)
+    v = var(Y)
+    A = model(distance_matrix(X, X)) + diagm(ϵ0*ones_like(Y))
+    C = model(distance_matrix(X, Xi))
 
     Ainv = inv(A)
     α = Ainv*C
     Yi = α'*Yd + mean(Y)
-    ϵi = errorvariance(model, C, Ainv, Yi)
+    ϵi = errorvariance(model, C, Ainv)
     return Yi, ϵi
 end
 
-# Compute the error variance from an OA estimate, given the modelled structure
+# Compute the error variance from an OA estimate, given the modelled variance
 # function *model*, prediction covariance matrix *C*, the inverted observation
 # covariance matrix *Ainv*, and the observation data, *Z*.
-#
-# If the returned error variance is negative, I believe that is an indication
-# that the model underestimates the local variance (where lag=0).
-function errorvariance(model::Function, C::AbstractArray, Ainv::AbstractArray,
-                       Z::AbstractArray)
-    ϵ = var_from_struct(model(0), Z) * ones_like(Z)
+function errorvariance(model::Function, C::AbstractArray, Ainv::AbstractArray)
+    ϵ = model(0) * ones(size(C, 2))
     for i=1:length(ϵ)
         ϵ[i] -= sum(C[:,i] .* C[:,i]' .* Ainv)
     end
     return ϵ
 end
-
 
 #### Model estimation #####
 # The following functions may be useful for estimating the structure function
