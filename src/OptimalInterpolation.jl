@@ -18,11 +18,8 @@ end
 function distance_matrix(x1::AbstractArray, x2::AbstractArray)
     D = Array(Float64, (size(x1)[2], size(x2)[2]))
     for i = 1:size(D)[1]
-        for j = i:size(D)[2]
+        for j = 1:size(D)[2]
             D[i,j] = Distances.euclidean(x1[:,i], x2[:,j])
-            if i!=j
-                D[j,i] = D[i,j]
-            end
         end
     end
     return D
@@ -33,14 +30,16 @@ distance_matrix(x1::AbstractVector, x2::AbstractVector) = distance_matrix(x1', x
 # at *X*, *Y* at the positions *Xi*. The field variance function is given by
 # *model*, and the variance intrinsic to the observation is given by *ϵ0*
 function oainterp(model::Function, Xi, X, Y; ϵ0=1e-1)
-    Yd = demean(Y)
+    Ym = mean(Y)
+    Yd = Y - Ym
+    # Yd = demean(Y)
     v = var(Y)
     A = model(distance_matrix(X, X)) + diagm(ϵ0*ones_like(Y))
     C = model(distance_matrix(X, Xi))
 
     Ainv = inv(A)
     α = Ainv*C
-    Yi = α'*Yd + mean(Y)
+    Yi = α'*Yd + Ym
     ϵi = errorvariance(model, C, Ainv)
     return Yi, ϵi
 end
