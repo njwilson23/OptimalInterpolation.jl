@@ -32,8 +32,6 @@ distance_matrix(x1::AbstractVector, x2::AbstractVector) = distance_matrix(x1', x
 function oainterp(model::Function, Xi, X, Y; ϵ0=1e-1)
     Ym = mean(Y)
     Yd = Y - Ym
-    # Yd = demean(Y)
-    v = var(Y)
     A = model(distance_matrix(X, X)) + diagm(ϵ0*ones_like(Y))
     C = model(distance_matrix(X, Xi))
 
